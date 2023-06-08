@@ -72,7 +72,7 @@ class CommonMatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
 
         self.verify_gathering_type(gathering)
 
-        res = matchmaking_utils.create_gathering_from_gathering(client, gathering)
+        res = matchmaking_utils.create_gathering_type_from_document(client, gathering)
         res.description = description
 
         created_gathering = matchmaking_utils.create_gathering(self.gatherings_db, self.sequence_db, client, res)
@@ -164,7 +164,7 @@ class CommonMatchmakeExtensionServer(matchmaking.MatchmakeExtensionServer):
                 raise common.RMCError("RendezVous::NotParticipatedGathering")
 
         # Create a gathering, add the host then the additional participants
-        res = matchmaking_utils.create_gathering_from_gathering(client, param.session)
+        res = matchmaking_utils.create_gathering_type_from_document(client, param.session)
         created_gathering = matchmaking_utils.create_gathering(self.gatherings_db, self.sequence_db, client, res)
         created_gathering_doc = matchmaking_utils.gathering_type_to_document(created_gathering)
 

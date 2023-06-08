@@ -6,6 +6,15 @@ from pymongo.collection import Collection
 from typing import Callable
 
 
+class GatheringFlags:
+    MIGRATE_OWNERSHIP = 0x10
+    LEAVE_PERSISTENT_GATHERING_ON_DISCONNECT = 0x40
+    ALLOW_ZERO_PARTICIPANT = 0x80
+    CAN_OWNERSHIP_BE_TAKEN_BY_PARTICIPANTS = 0x200
+    SEND_NOTIFICATIONS_ON_PARTICIPATION = 0x400
+    SEND_NOTIFICATIONS_ON_PARTICIPATION = 0x800
+
+
 def get_next_gid(col: Collection) -> int:
     gid = col.find_one_and_update({"_id": "gathering_id"}, {"$inc": {"seq": 1}})["seq"]
     if gid == 0xffffffff:
@@ -89,7 +98,7 @@ def matchmake_session_to_document(obj: matchmaking.MatchmakeSession) -> dict:
         "progress_score": obj.progress_score,
         "session_key": bson.Binary(obj.session_key),
         "option0": obj.option,
-        "param": {},  # TODO: Implement MatchmakeParam parsing
+        "param": obj.param.param,
         "started_time": obj.started_time.value(),
         "user_password": obj.user_password,
         "refer_gid": obj.refer_gid,
@@ -110,7 +119,8 @@ def matchmake_session_from_document_impl(res: matchmaking.MatchmakeSession, obj:
     res.progress_score = obj["progress_score"]
     res.session_key = obj["session_key"]
     res.option = obj["option0"]
-    res.param = {}  # TODO: Implement MatchmakeParam parsing
+    res.param = matchmaking.MatchmakeParam()
+    res.param.param = obj["param"]
     res.started_time = common.DateTime(obj["started_time"])
     res.user_password = obj["user_password"]
     res.refer_gid = obj["refer_gid"]
@@ -250,7 +260,7 @@ def gathering_type_from_document(obj: dict):
     raise common.RMCError("Core::InvalidArgument")
 
 
-def create_gathering_from_gathering(client: rmc.RMCClient, obj):
+def create_gathering_type_from_document(client: rmc.RMCClient, obj: dict):
     if is_object_matchmake_session(obj):
         return create_matchmake_session_from_obj(client, obj)
     elif is_object_persistent_gathering(obj):
@@ -343,18 +353,14 @@ def find_gathering(gatherings_db: Collection,
     conditions.update(add_extra_filters(client, gathering))
     if (search_criteria) and (len(search_criteria) > 0):
         # Matchmaking code with search criterias
-        sc: matchmaking.MatchmakeSessionSearchCriteria = None
-        for _sc in search_criteria:
-            sc = _sc
+        for sc in search_criteria:
             num_players = sc.vacant_participants
 
-            conditions.update({"type": "MatchmakeSession"})
-            conditions.update({"game_mode": gathering.game_mode})
+            conditions.update({"type": "MatchmakeSession", "game_mode": gathering.game_mode})
             if sc.game_mode != "":
                 conditions.update({"game_mode": int(sc.game_mode)})
 
-            # TODO: apply MatchmakeSystem logic
-
+            # If search criteria has a "minimum participant" requirement, parse the string
             if sc.min_participants != "":
                 if ',' in sc.min_participants:
                     low, high = sc.min_participants.split(",")
@@ -362,6 +368,7 @@ def find_gathering(gatherings_db: Collection,
                 else:
                     conditions.update({"min_participants": int(sc.min_participants)})
 
+            # If search criteria has a "maximum participant" requirement, parse the string
             if sc.max_participants != "":
                 if ',' in sc.max_participants:
                     low, high = sc.max_participants.split(",")
@@ -369,12 +376,13 @@ def find_gathering(gatherings_db: Collection,
                 else:
                     conditions.update({"max_participants": int(sc.max_participants)})
 
+            # Make sure there's enough place for the number of players specified by the SearchCriteria
             conditions.update({"$expr": {"$gt": ["$max_participants", {"$add": [{"$size": "$players"}, num_players]}]}})
 
             res = gatherings_db.find(conditions).limit(limit)
             res_list += list(map(gathering_type_from_document, res))
     else:
-        # Matchmaking code if no search criteria is passed (None)
+        # Matchmaking code if no search criteria is passed (None or [])
         conditions.update({
             "type": gathering_type,
             "min_participants": gathering.min_participants,
@@ -385,11 +393,13 @@ def find_gathering(gatherings_db: Collection,
                 "game_mode": gathering.game_mode,
             })
 
+        # Make sure there's enough place for the player making the request
         conditions.update({"$expr": {"$gt": ["$max_participants", {"$add": [{"$size": "$players"}, 1]}]}})
 
         res = gatherings_db.find(conditions).limit(limit)
         res_list = list(map(gathering_type_from_document, res))
 
+    # If no gathering match the conditions, create a new gathering for the caller
     if len(res_list) == 0:
         return [create_gathering(gatherings_db, sequence_db, client, gathering)]
 
@@ -412,7 +422,7 @@ def create_gathering(gatherings_db: Collection,
         Gathering | MatchmakeSession | PersistentGathering: The created gathering
     """
 
-    res = create_gathering_from_gathering(client, gathering)
+    res = create_gathering_type_from_document(client, gathering)
     res.id = get_next_gid(sequence_db)
 
     doc = gathering_type_to_document(res)
@@ -425,7 +435,7 @@ def create_gathering(gatherings_db: Collection,
 
 def delete_gathering_for_client(gatherings_db: Collection, client: rmc.RMCClient, gid: int):
     """
-        Delete a Gathering by ID, as if it is called by the specified client.
+        Delete a Gathering (fetched by ID), expected to be called by the specified client.
 
     Args:
         gatherings_db (Collection): The MongoDB collection where the gatherings are stored
@@ -439,9 +449,10 @@ def delete_gathering_for_client(gatherings_db: Collection, client: rmc.RMCClient
     gathering = gatherings_db.find_one({"id": gid})
     if not gathering:
         raise common.RMCError("RendezVous::SessionVoid")
-    is_owner = (gathering["owner"] == client.pid())
-    if not is_owner:
+
+    if gathering["owner"] != client.pid():
         raise common.RMCError("RendezVous::PermissionDenied")
+
     gatherings_db.delete_one({"id": gid})
 
 # ============= Add / Remove in gatherings functions  =============
@@ -449,7 +460,7 @@ def delete_gathering_for_client(gatherings_db: Collection, client: rmc.RMCClient
 
 def add_user_to_gathering(gatherings_db: Collection, client: rmc.RMCClient, gid: int, message: str, num_added: int = 1) -> dict:
     """
-    Add a user to the gathering (fetched by ID)
+    Add a client to a gathering (fetched by ID)
 
     Args:
         gatherings_db (Collection): The MongoDB collection where the gatherings are stored
@@ -475,12 +486,12 @@ def add_user_to_gathering(gatherings_db: Collection, client: rmc.RMCClient, gid:
 
 def add_user_to_gathering_ex(gatherings_db: Collection, client: rmc.RMCClient, gathering: dict, message: str, num_added: int = 1) -> dict:
     """
-    Add a user to the gathering (represented by a collection entry)
+    Add a user to the gathering (represented by a collection document)
 
     Args:
         gatherings_db (Collection): The MongoDB collection where the gatherings are stored
         client (rmc.RMCClient): The caller client to be added in the gathering
-        gathering (dict): _description_
+        gathering (dict): The document representing the gathering
         message (str): The join message
         num_added (int): The number of players that will join (multiple controllers, guest, etc...)
 
@@ -494,11 +505,6 @@ def add_user_to_gathering_ex(gatherings_db: Collection, client: rmc.RMCClient, g
     """
     if (len(gathering["players"]) + num_added) > gathering["max_participants"]:
         raise common.RMCError("RendezVous::SessionFull")
-
-    # TODO check black list
-    # TODO check passwords
-    # TODO check open status of gathering
-    # etc..
 
     if client.pid() in gathering["players"]:
         raise common.RMCError("RendezVous::AlreadyParticipatedGathering")
@@ -524,7 +530,7 @@ def add_user_to_gathering_ex(gatherings_db: Collection, client: rmc.RMCClient, g
 
 def add_user_to_gathering_ex_by_pids(gatherings_db: Collection, client: rmc.RMCClient, gathering: dict, message: str, pids: list[int]) -> dict:
     """
-    Add users (by PID) to the gathering (represented by a collection entry)
+    Add users (by PID) to the gathering (represented by a collection document)
 
     Args:
         gatherings_db (Collection): The MongoDB collection where the gatherings are stored
@@ -543,11 +549,6 @@ def add_user_to_gathering_ex_by_pids(gatherings_db: Collection, client: rmc.RMCC
     num_added = len(pids)
     if (len(gathering["players"]) + num_added) > gathering["max_participants"]:
         raise common.RMCError("RendezVous::SessionFull")
-
-    # TODO check black list
-    # TODO check passwords
-    # TODO check open status of gathering
-    # etc..
 
     pid_list = pids
     action = {"$push": {"players": {"$each": pid_list}}}
@@ -597,12 +598,13 @@ def remove_user_from_gathering(gatherings_db: Collection, client: rmc.RMCClient,
 
     update_result = gatherings_db.update_one({"id": gid}, action)
     if update_result.modified_count != 0:
-        if "num_participants" in gathering:
-            while client.pid() in gathering["players"]:
-                gathering["players"].remove(client.pid())
-            while -client.pid() in gathering["players"]:
-                gathering["players"].remove(-client.pid())
-            gathering["num_participants"] -= num_appearance
+        while client.pid() in gathering["players"]:
+            gathering["players"].remove(client.pid())
+        while -client.pid() in gathering["players"]:
+            gathering["players"].remove(-client.pid())
+        gathering["num_participants"] -= num_appearance
+
+        handle_gathering_player_removal(gatherings_db, client, gathering)
 
     return gathering
 
@@ -632,11 +634,32 @@ def remove_user_from_gathering_ex(gatherings_db: Collection, client: rmc.RMCClie
 
     update_result = gatherings_db.update_one({"id": gathering["id"]}, action)
     if update_result.modified_count != 0:
-        if "num_participants" in gathering:
-            while client.pid() in gathering["players"]:
-                gathering["players"].remove(client.pid())
-            while -client.pid() in gathering["players"]:
-                gathering["players"].remove(-client.pid())
-            gathering["num_participants"] -= num_appearance
+        while client.pid() in gathering["players"]:
+            gathering["players"].remove(client.pid())
+        while -client.pid() in gathering["players"]:
+            gathering["players"].remove(-client.pid())
+
+        gathering["num_participants"] -= num_appearance
+
+        handle_gathering_player_removal(gatherings_db, client, gathering)
 
     return gathering
+
+
+def handle_gathering_player_removal(gatherings_db: Collection, client: rmc.RMCClient, gathering: dict):
+    if gathering["type"] == "PersistentGathering":
+        if len(gathering["players"]) == 0:
+            if gathering["flags"] & GatheringFlags.ALLOW_ZERO_PARTICIPANT:
+                pass
+            else:
+                gatherings_db.delete_one({"id": gathering["id"]})
+    else:
+        if len(gathering["players"]) == 0:
+            gatherings_db.delete_one({"id": gathering["id"]})
+        elif client.pid() == gathering["owner"]:
+            # Update owner if the old one disconnected
+            # TODO: Trigger notifications ...
+            # Not really an issue, because the clients handle that between each other
+            gatherings_db.update_one({"id": gathering["id"]}, {"$set": {
+                "owner": gathering["players"][0]
+            }})

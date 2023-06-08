@@ -2,15 +2,7 @@ from nintendo.nex import rmc, matchmaking, common
 from pymongo.collection import Collection
 
 from . import matchmaking_utils
-
-
-class GatheringFlags:
-    MIGRATE_OWNERSHIP = 0x10
-    LEAVE_PERSISTENT_GATHERING_ON_DISCONNECT = 0x40
-    ALLOW_ZERO_PARTICIPANT = 0x80
-    CAN_OWNERSHIP_BE_TAKEN_BY_PARTICIPANTS = 0x200
-    SEND_NOTIFICATIONS_ON_PARTICIPATION = 0x400
-    SEND_NOTIFICATIONS_ON_PARTICIPATION = 0x800
+from .matchmaking_utils import GatheringFlags
 
 
 class CommonMatchMakingServer(matchmaking.MatchMakingServer):
@@ -84,4 +76,4 @@ class CommonMatchMakingServer(matchmaking.MatchMakingServer):
 
         if gathering["flags"] & GatheringFlags.CAN_OWNERSHIP_BE_TAKEN_BY_PARTICIPANTS:
             for pid in gathering["players"]:
-                pass  # Send notification 4000
+                pass  # TODO: Send notification 4000
