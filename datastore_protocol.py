@@ -30,7 +30,11 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         self.datastore_db.delete_many({"is_validated": False})
 
     def get_next_datastore_object_id(self) -> int:
-        return self.sequence_db.find_one_and_update({"_id": "datastore_object_id"}, {"$inc": {"seq": 1}})["seq"]
+        obj_id = self.sequence_db.find_one_and_update({"_id": "datastore_object_id"}, {"$inc": {"seq": 1}})["seq"]
+        if obj_id == 0xffffffff:
+            self.sequence_db.update_one({"_id": "datastore_object_id"}, {"$set": {"seq": 0}})
+
+        return obj_id
 
     def validate_prepare_post_param(self, client, param: datastore.DataStorePreparePostParam):
         return True
