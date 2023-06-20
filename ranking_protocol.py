@@ -285,7 +285,7 @@ class CommonRankingServer(ranking.RankingServer):
     def __init__(self,
                  settings,
                  rankings_db: Collection,
-                 redis_uri: str,
+                 redis_instance: redis.client.Redis,
                  commondata_db: Collection,
                  common_data_handler: Callable[[Collection, int, bytes, int], bool],
                  rankings_category: dict[int, bool]):
@@ -293,13 +293,10 @@ class CommonRankingServer(ranking.RankingServer):
         self.settings = settings
 
         self.rankings_db = rankings_db
-        self.redis_uri = redis_uri
+        self.redis_instance = redis_instance
         self.commondata_db = commondata_db
         self.common_data_handler = common_data_handler
         self.rankings_category = rankings_category
-
-        self.redis_instance = redis.from_url(self.redis_uri)
-        self.redis_instance.ping()
 
         self.ranking_mgr = RankingManager(self.rankings_db, self.commondata_db, self.redis_instance)
 

@@ -1,6 +1,6 @@
 from nintendo.nex import rmc, kerberos, authentication, common
 import secrets
-from pymongo.collection import Collection
+from typing import Callable
 
 
 class AuthenticationUser:
@@ -17,7 +17,8 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
                  secure_port: int,
                  build_string: str,
                  special_users: list[AuthenticationUser],
-                 nexaccounts_db: Collection):
+                 get_nex_password_func: Callable[[int], str],
+                 auth_callback: Callable[[AuthenticationUser], common.Result] = None):
 
         super().__init__()
         self.settings = settings
@@ -26,7 +27,8 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
         self.secure_host = secure_host
         self.secure_port = secure_port
         self.build_string = build_string
-        self.nexaccounts_db = nexaccounts_db
+        self.get_nex_password_func = get_nex_password_func
+        self.auth_callback = auth_callback
 
     # ============= Utility functions  =============
 
@@ -57,10 +59,11 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
                 return u
 
     def get_user_from_pid(self, pid: int):
-        user = self.nexaccounts_db.find_one({"pid": pid})
-        if user:
-            return AuthenticationUser(user["pid"], str(user["pid"]), user["password"])
-        return user
+        try:
+            password = self.get_nex_password_func(pid)
+            return AuthenticationUser(pid, str(pid), password)
+        except:
+            pass
 
     # ============= Method implementations  =============
 
@@ -76,6 +79,11 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
             print("No special users with PID 2 ... fix this please!")
             raise common.RMCError("Core::NotImplemented")
 
+        error = common.Result.success()
+        if self.auth_callback:
+            error = self.auth_callback(user)
+            error.raise_if_error()
+
         url = common.StationURL(
             scheme="prudps", address=self.secure_host, port=self.secure_port,
             PID=server.pid, CID=1, type=2,
@@ -89,9 +97,9 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
         conn_data.server_time = common.DateTime.now()
 
         response = rmc.RMCResponse()
-        response.result = common.Result.success()
+        response.result = error
         response.pid = user.pid
-        response.ticket = self.generate_ticket(user, server)
+        response.ticket = self.generate_ticket(user, server) if error.is_success() else b""
         response.connection_data = conn_data
         response.server_name = self.build_string
         return response
@@ -109,6 +117,10 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
             print("No special users with PID 2 ... fix this please!")
             raise common.RMCError("Core::NotImplemented")
 
+        error = common.Result.success()
+        if self.auth_callback:
+            error = self.auth_callback(user)
+
         url = common.StationURL(
             scheme="prudps", address=self.secure_host, port=self.secure_port,
             PID=server.pid, CID=1, type=2,
@@ -122,9 +134,9 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
         conn_data.server_time = common.DateTime.now()
 
         response = rmc.RMCResponse()
-        response.result = common.Result.success()
+        response.result = error
         response.pid = user.pid
-        response.ticket = self.generate_ticket(user, server)
+        response.ticket = self.generate_ticket(user, server) if error.is_success() else b""
         response.connection_data = conn_data
         response.server_name = self.build_string
         return response
