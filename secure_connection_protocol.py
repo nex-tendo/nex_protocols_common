@@ -140,6 +140,6 @@ class CommonSecureConnectionServer(secure.SecureConnectionServer):
                 "report_id": report_id,
                 "report_data": bson.Binary(report_data),
                 "report_size": len(report_data),
-                "report_date": datetime.datetime.now()
+                "report_date": datetime.datetime.utcnow()
             }
         }, upsert=True)

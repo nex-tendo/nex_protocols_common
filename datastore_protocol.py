@@ -67,9 +67,9 @@ class CommonDataStoreServer(datastore.DataStoreServer):
             },
             "persistence_id": param.persistence_init_param.persistence_id,
             "is_validated": False,
-            "create_time": datetime.datetime.now(),
-            "update_time": datetime.datetime.now(),
-            "referred_time": datetime.datetime.now(),
+            "create_time": datetime.datetime.utcnow(),
+            "update_time": datetime.datetime.utcnow(),
+            "referred_time": datetime.datetime.utcnow(),
             "expire_time": datetime.datetime(9999, 12, 31),
         }
 

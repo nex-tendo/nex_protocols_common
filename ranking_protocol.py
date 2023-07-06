@@ -78,7 +78,7 @@ class RankingManager:
             "category": score_data.category,
             "score": score_data.score,
             "groups": score_data.groups,
-            "insert_time": datetime.datetime.now()
+            "insert_time": datetime.datetime.utcnow()
         })
 
         pipeline = self.redis_db.pipeline()
@@ -317,7 +317,7 @@ class CommonRankingServer(ranking.RankingServer):
             "data": bson.Binary(data),
             "size": len(data),
             "unique_id": unique_id,
-            "last_update": datetime.datetime.now()
+            "last_update": datetime.datetime.utcnow()
         }, upsert=True)
 
     # ============= Method implementations  =============

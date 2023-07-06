@@ -1,5 +1,6 @@
 from nintendo.nex import rmc, kerberos, authentication, common
 import secrets
+import datetime
 from typing import Callable
 
 
@@ -94,7 +95,7 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
         conn_data.main_station = url
         conn_data.special_protocols = []
         conn_data.special_station = common.StationURL()
-        conn_data.server_time = common.DateTime.now()
+        conn_data.server_time = common.DateTime.fromtimestamp(datetime.datetime.utcnow().timestamp())
 
         response = rmc.RMCResponse()
         response.result = error
@@ -131,7 +132,7 @@ class CommonAuthenticationServer(authentication.AuthenticationServer):
         conn_data.main_station = url
         conn_data.special_protocols = []
         conn_data.special_station = common.StationURL()
-        conn_data.server_time = common.DateTime.now()
+        conn_data.server_time = common.DateTime.fromtimestamp(datetime.datetime.utcnow().timestamp())
 
         response = rmc.RMCResponse()
         response.result = error
