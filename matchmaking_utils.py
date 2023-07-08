@@ -377,7 +377,7 @@ def find_gathering(gatherings_db: Collection,
                     conditions.update({"max_participants": int(sc.max_participants)})
 
             # Make sure there's enough place for the number of players specified by the SearchCriteria
-            conditions.update({"$expr": {"$gt": ["$max_participants", {"$add": [{"$size": "$players"}, num_players]}]}})
+            conditions.update({"$expr": {"$gte": ["$max_participants", {"$add": [{"$size": "$players"}, num_players]}]}})
 
             res = gatherings_db.find(conditions).limit(limit)
             res_list += list(map(gathering_type_from_document, res))
@@ -394,7 +394,7 @@ def find_gathering(gatherings_db: Collection,
             })
 
         # Make sure there's enough place for the player making the request
-        conditions.update({"$expr": {"$gt": ["$max_participants", {"$add": [{"$size": "$players"}, 1]}]}})
+        conditions.update({"$expr": {"$gte": ["$max_participants", {"$add": [{"$size": "$players"}, 1]}]}})
 
         res = gatherings_db.find(conditions).limit(limit)
         res_list = list(map(gathering_type_from_document, res))
