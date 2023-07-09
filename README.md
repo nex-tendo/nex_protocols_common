@@ -17,6 +17,8 @@ Install Python3 and these libs:
 
 # Common to all protocols
 
+- [**Example MK8 server**](https://github.com/EpicUsername12/nex_mario_kart_8)
+
 Assuming you're running a MK8 server: (change based on your)
 
 ```py
