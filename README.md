@@ -44,7 +44,7 @@ Example usage:
 
 ```py
 
-account_grpc_client = grpc.insecure_channel('%s:%d' % (NEX_CONFIG.account_grpc_host, NEX_CONFIG.account_grpc_port))
+account_grpc_client = grpc.insecure_channel('%s:%d' % ("localhost", 50051))
 account_service = account_service_pb2_grpc.AccountStub(account_grpc_client)
 
 SecureServerUser = AuthenticationUser(2, "Quazal Rendez-Vous", "EPIC_SECURE_AUTH_PASS") # make the password actually secure
@@ -61,13 +61,14 @@ def example_auth_callback(auth_user: AuthenticationUser) -> common.Result:
     return common.Result.success()
 
 AuthenticationServer = CommonAuthenticationServer(
-                                                NEX_SETTINGS,
-                                                secure_host="124.124.56.111", # Your external IPv4 address
-                                                secure_port=1224, # Secure server is open on port 1224
-                                                build_string="Example-BUILD-string-22cef", # Build string
-                                                special_users=[SecureServerUser, GuestUser], # You can remove the Guest users
-                                                get_nex_password_func=example_get_nex_password, # Callback: The function that will fetch user NEX passwords
-                                                auth_callback=example_auth_callback) # Callback: The function that will be called on each login attempt (you can raise RMC exceptions)
+    NEX_SETTINGS,
+    secure_host="124.124.56.111", # Your external IPv4 address
+    secure_port=1224, # Secure server is open on port 1224
+    build_string="Example-BUILD-string-22cef", # Build string
+    special_users=[SecureServerUser, GuestUser], # You can remove the Guest users
+    get_nex_password_func=example_get_nex_password, # Callback: The function that will fetch user NEX passwords
+    auth_callback=example_auth_callback # Callback: The function that will be called on each login attempt (you can raise RMC exceptions)
+)
 ```
 
 ## Secure Connecition Protocol (secure server)
@@ -78,9 +79,10 @@ Example usage:
 
 ```py
 SecureConnectionServer = CommonSecureConnectionServer(
-                                                        NEX_SETTINGS,
-                                                        sessions_db=session_collection, # The MongoDB collection that will store user session URLs
-                                                        reportdata_db=reportdata_collection) # The MongoDB collection that will store secure report data (unused yet)
+    NEX_SETTINGS,
+    sessions_db=session_collection, # The MongoDB collection that will store user session URLs
+    reportdata_db=reportdata_collection # The MongoDB collection that will store secure report data (unused yet)
+)
 ```
 
 ## Ranking Protocol (secure server)
@@ -96,13 +98,13 @@ redis_client = redis.from_url("redis://127.0.0.1:6379")
 redis_client.ping()
 
 RankingServer = CommonRankingServer(
-                                    NEX_SETTINGS,
-                                    rankings_db=ranking_scores_collection,
-                                    redis_instance=redis_client,
-                                    commondata_db=ranking_commondata_collection,
-                                    common_data_handler=None, # Optional, look MK8 to see how it can be used
-                                    rankings_category={}) # Ranking categories if you want some of them to be Ascending, other descending (dict[int, int])
-                                    
+    NEX_SETTINGS,
+    rankings_db=ranking_scores_collection,
+    redis_instance=redis_client,
+    commondata_db=ranking_commondata_collection,
+    common_data_handler=None, # Optional, look MK8 to see how it can be used
+    rankings_category={} # Ranking categories if you want some of them to be Ascending, other descending (dict[int, int])
+)                          
 ```
 
 ## Matchmake Extension Protocol (secure server)
@@ -113,11 +115,12 @@ Example usage:
 
 ```py
 MatchmakeExtensionServer = CommonMatchmakeExtensionServer(
-                                                        NEX_SETTINGS,
-                                                        gatherings_db=gatherings_collection,
-                                                        sequence_db=sequence_collection,
-                                                        get_friend_pids_func=example_get_friend_pids_func,
-                                                        secure_connection_server=SecureConnectionServer)                       
+    NEX_SETTINGS,
+    gatherings_db=gatherings_collection,
+    sequence_db=sequence_collection,
+    get_friend_pids_func=example_get_friend_pids_func,
+    secure_connection_server=SecureConnectionServer
+)                       
 ```
 
 ## Matchmaking Ext Protocol (secure server)
@@ -126,9 +129,10 @@ Example usage:
 
 ```py
 MatchmakingExtServer = CommonMatchMakingServerExt(
-                                                    NEX_SETTINGS,
-                                                    gatherings_db=gatherings_collection,
-                                                    sequence_db=sequence_collection)
+    NEX_SETTINGS,
+    gatherings_db=gatherings_collection,
+    sequence_db=sequence_collection
+)
 ```
 
 ## NAT Traversal Protocol (secure server)
@@ -139,9 +143,10 @@ Example usage:
 
 ```py
 NATTraversalServer = CommonNATTraversalServer(
-                                                NEX_SETTINGS,
-                                                sessions_db=session_collection,
-                                                secure_connection_server=SecureConnectionServer)
+    NEX_SETTINGS,
+    sessions_db=session_collection,
+    secure_connection_server=SecureConnectionServer
+)
 ```
 
 ## Matchmaking Protocol (secure server)
@@ -150,10 +155,11 @@ Example usage:
 
 ```py
 MatchmakingServer = CommonMatchMakingServer(
-                                                NEX_SETTINGS,
-                                                gatherings_db=gatherings_collection,
-                                                sessions_db=session_collection,
-                                                sequence_db=sequence_collection)
+    NEX_SETTINGS,
+    gatherings_db=gatherings_collection,
+    sessions_db=session_collection,
+    sequence_db=sequence_collection                                            
+)
 ```
 
 ## DataStore Protocol (secure server)
@@ -191,13 +197,14 @@ def example_head_object_by_key(key: str) -> tuple[bool, int, str]:
     return success, (0 if not success else int(res.headers["Content-Length"])), url
 
 DataStoreServer = MK8DataStoreServer(
-                                    NEX_SETTINGS,
-                                    s3_client=s3_client,
-                                    s3_endpoint_domain="https://s3.endpoint.change.to.yourendpoint",
-                                    s3_bucket="your_s3_bucket_name",
-                                    datastore_db=datastore_collection,
-                                    sequence_db=sequence_collection,
-                                    head_object_by_key=example_head_object_by_key, # Callback: Get success, size, url by object key
-                                    calculate_s3_object_key=example_calculate_s3_object_key, # Callback: Get object key by client, persistence id, object id
-                                    calculate_s3_object_key_ex=example_calculate_s3_object_key_ex) # Callback: Get object key by PID, persistence id, object id
+    NEX_SETTINGS,
+    s3_client=s3_client,
+    s3_endpoint_domain="https://s3.endpoint.change.to.yourendpoint",
+    s3_bucket="your_s3_bucket_name",
+    datastore_db=datastore_collection,
+    sequence_db=sequence_collection,
+    head_object_by_key=example_head_object_by_key, # Callback: Get success, size, url by object key
+    calculate_s3_object_key=example_calculate_s3_object_key, # Callback: Get object key by client, persistence id, object id
+    calculate_s3_object_key_ex=example_calculate_s3_object_key_ex # Callback: Get object key by PID, persistence id, object id
+)
 ```
