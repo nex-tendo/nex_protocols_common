@@ -6,14 +6,14 @@
 
 You may need:
 
-- S3 instance
+- S3 instance (MinIO)
 - MongoDB server 6.0+
 - Redis server 7.0+
 
 Install Python3 and these libs:
 
 - [NintendoClients](https://github.com/kinnay/NintendoClients)
-- ``python -m pip install aioconsole requests pymongo redis grpcio-tools boto3``
+- ``python -m pip install aioconsole requests pymongo redis grpcio-tools minio``
 
 # Common to all protocols
 
@@ -67,7 +67,7 @@ AuthenticationServer = CommonAuthenticationServer(
     secure_host="124.124.56.111", # Your external IPv4 address
     secure_port=1224, # Secure server is open on port 1224
     build_string="Example-BUILD-string-22cef", # Build string
-    special_users=[SecureServerUser, GuestUser], # You can remove the Guest users
+    special_users=[SecureServerUser, GuestUser], # You can remove the Guest user
     get_nex_password_func=example_get_nex_password, # Callback: The function that will fetch user NEX passwords
     auth_callback=example_auth_callback # Callback: The function that will be called on each login attempt (you can raise RMC exceptions)
 )
@@ -171,14 +171,12 @@ MatchmakingServer = CommonMatchMakingServer(
 Example usage:
 
 ```py
-s3_client = boto3.client(
-    's3',
-    region_name="us-east-1",
-    endpoint_url="https://s3.endpoint.change.to.yourendpoint",
-    aws_access_key_id="s3_access_key",
-    aws_secret_access_key="s3_secret",
-    config=Config(signature_version='s3v4') # Required for presigned POST
-)
+from minio import Minio
+from minio.credentials import StaticProvider
+
+s3_client = Minio(endpoint="s3.endpoint.change.to.yourendpoint",
+                  secure=True,
+                  credentials=StaticProvider("s3_access_key", "s3_secret", ""))
 
 def example_calculate_s3_object_key_ex(database, pid, persistence_id: int, object_id: int) -> str:
     if persistence_id < 1024:
@@ -192,20 +190,12 @@ def example_calculate_s3_object_key(database, client, persistence_id: int, objec
     else:
         return "mktv/%d.bin" % (object_id)
 
-def example_head_object_by_key(key: str) -> tuple[bool, int, str]:
-    url = "https://%s.b-cdn.net/%s" % ("example-bucket.yourCDNdomain", key)
-    res = requests.head(url)
-    success = (res.status_code == 200)
-    return success, (0 if not success else int(res.headers["Content-Length"])), url
-
 DataStoreServer = MK8DataStoreServer(
     NEX_SETTINGS,
     s3_client=s3_client,
-    s3_endpoint_domain="https://s3.endpoint.change.to.yourendpoint",
     s3_bucket="your_s3_bucket_name",
     datastore_db=datastore_collection,
     sequence_db=sequence_collection,
-    head_object_by_key=example_head_object_by_key, # Callback: Get success, size, url by object key
     calculate_s3_object_key=example_calculate_s3_object_key, # Callback: Get object key by client, persistence id, object id
     calculate_s3_object_key_ex=example_calculate_s3_object_key_ex # Callback: Get object key by PID, persistence id, object id
 )

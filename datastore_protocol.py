@@ -3,27 +3,25 @@ from pymongo.collection import Collection
 from typing import Callable
 import datetime
 import pymongo
+from minio import Minio
+from minio.datatypes import PostPolicy
 
 
 class CommonDataStoreServer(datastore.DataStoreServer):
     def __init__(self,
                  settings,
-                 s3_client,
-                 s3_endpoint_domain: str,
+                 s3_client: Minio,
                  s3_bucket: str,
                  datastore_db: Collection,
                  sequence_db: Collection,
-                 head_object_by_key: Callable[[str], tuple[bool, int, str]],
                  calculate_s3_object_key: Callable[[Collection, rmc.RMCClient, int, int], str],
                  calculate_s3_object_key_ex: Callable[[Collection, int, int, int], str]):
         super().__init__()
         self.settings = settings
         self.s3_client = s3_client
-        self.s3_endpoint_domain = s3_endpoint_domain
         self.s3_bucket = s3_bucket
         self.datastore_db = datastore_db
         self.sequence_db = sequence_db
-        self.head_object_by_key = head_object_by_key
         self.calculate_s3_object_key = calculate_s3_object_key
         self.calculate_s3_object_key_ex = calculate_s3_object_key_ex
 
@@ -37,6 +35,9 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         return obj_id
 
     def validate_prepare_post_param(self, client, param: datastore.DataStorePreparePostParam):
+        if param.size > (16 * 1024 * 1024):
+            raise common.RMCError("DataStore::InvalidArgument")
+
         return True
 
     # ==================================================================================
@@ -91,58 +92,25 @@ class CommonDataStoreServer(datastore.DataStoreServer):
 
         self.datastore_db.insert_one(doc)
 
-        s3_key = self.calculate_s3_object_key(self.datastore_db, client, param.persistence_init_param.persistence_id, doc["id"])
-        response = self.s3_client.generate_presigned_post(Bucket=self.s3_bucket,
-                                                          Key=s3_key,
-                                                          ExpiresIn=(15 * 60),
-                                                          Conditions=[["content-length-range", param.size, param.size], {"x-amz-security-token": ""}])
-
-        fields = response["fields"]
+        key = self.calculate_s3_object_key(self.datastore_db, client, param.persistence_init_param.persistence_id, doc["id"])
+        policy = PostPolicy(self.s3_bucket, datetime.datetime.utcnow() + datetime.timedelta(minutes=15))
+        policy.add_equals_condition("key", key)
+        policy.add_content_length_range_condition(param.size, param.size)
+        form = self.s3_client.presigned_post_policy(policy)
+        form["key"] = key
 
         res = datastore.DataStoreReqPostInfo()
-        res.url = "https://%s.%s" % (self.s3_bucket, self.s3_endpoint_domain)
+        res.url = self.s3_client._base_url._url.geturl() + "/" + self.s3_bucket
         res.form = []
         res.headers = []
         res.data_id = doc["id"]
         res.root_ca_cert = b""
 
-        field_key = datastore.DataStoreKeyValue()
-        field_key.key = "key"
-        field_key.value = fields["key"]
-
-        field_credential = datastore.DataStoreKeyValue()
-        field_credential.key = "X-Amz-Credential"
-        field_credential.value = fields["x-amz-credential"]
-
-        field_date = datastore.DataStoreKeyValue()
-        field_date.key = "X-Amz-Date"
-        field_date.value = fields["x-amz-date"]
-
-        field_security_token = datastore.DataStoreKeyValue()
-        field_security_token.key = "X-Amz-Security-Token"
-        field_security_token.value = ""
-
-        field_algorithm = datastore.DataStoreKeyValue()
-        field_algorithm.key = "X-Amz-Algorithm"
-        field_algorithm.value = fields["x-amz-algorithm"]
-
-        field_policy = datastore.DataStoreKeyValue()
-        field_policy.key = "policy"
-        field_policy.value = fields["policy"]
-
-        field_signature = datastore.DataStoreKeyValue()
-        field_signature.key = "X-Amz-Signature"
-        field_signature.value = fields["x-amz-signature"]
-
-        res.form = [
-            field_key,
-            field_credential,
-            field_security_token,
-            field_algorithm,
-            field_date,
-            field_policy,
-            field_signature
-        ]
+        for key, value in form.items():
+            field = datastore.DataStoreKeyValue()
+            field.key = key
+            field.value = value
+            res.form.append(field)
 
         return res
 
@@ -151,9 +119,15 @@ class CommonDataStoreServer(datastore.DataStoreServer):
             datastore_object = self.datastore_db.find_one({"id": param.data_id})
             if datastore_object and (client.pid() == datastore_object["owner"]):
                 persistence_id = datastore_object["persistence_id"]
-                success, _, _ = self.head_object_by_key(self.calculate_s3_object_key(self.datastore_db, client, persistence_id, param.data_id))
-                if success:
-                    self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": True}})
+                key = self.calculate_s3_object_key(self.datastore_db, client, persistence_id, param.data_id)
+                try:
+                    response = self.s3_client.stat_object(self.s3_bucket, key)
+                    if response.size != 0:
+                        self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": True}})
+                except:
+                    raise common.RMCError("DataStore::NotFound")
+            else:
+                raise common.RMCError("DataStore::PermissionDenied")
 
     async def prepare_update_object(self, client, param: datastore.DataStorePrepareUpdateParam):
 
@@ -168,54 +142,20 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         response = self.s3_client.generate_presigned_post(Bucket=self.s3_bucket,
                                                           Key=s3_key,
                                                           ExpiresIn=(15 * 60),
-                                                          Conditions=[["content-length-range", param.size, param.size], {"x-amz-security-token": ""}])
-
-        fields = response["fields"]
+                                                          Conditions=[["content-length-range", param.size, param.size]])
 
         res = datastore.DataStoreReqUpdateInfo()
-        res.url = "https://%s.%s" % (self.s3_bucket, self.s3_endpoint_domain)
+        res.url = response["url"]
         res.form = []
         res.headers = []
         res.root_ca_cert = b""
         res.version = 2
 
-        field_key = datastore.DataStoreKeyValue()
-        field_key.key = "key"
-        field_key.value = fields["key"]
-
-        field_credential = datastore.DataStoreKeyValue()
-        field_credential.key = "X-Amz-Credential"
-        field_credential.value = fields["x-amz-credential"]
-
-        field_date = datastore.DataStoreKeyValue()
-        field_date.key = "X-Amz-Date"
-        field_date.value = fields["x-amz-date"]
-
-        field_security_token = datastore.DataStoreKeyValue()
-        field_security_token.key = "X-Amz-Security-Token"
-        field_security_token.value = ""
-
-        field_algorithm = datastore.DataStoreKeyValue()
-        field_algorithm.key = "X-Amz-Algorithm"
-        field_algorithm.value = fields["x-amz-algorithm"]
-
-        field_policy = datastore.DataStoreKeyValue()
-        field_policy.key = "policy"
-        field_policy.value = fields["policy"]
-
-        field_signature = datastore.DataStoreKeyValue()
-        field_signature.key = "X-Amz-Signature"
-        field_signature.value = fields["x-amz-signature"]
-
-        res.form = [
-            field_key,
-            field_credential,
-            field_security_token,
-            field_algorithm,
-            field_date,
-            field_policy,
-            field_signature
-        ]
+        for key, value in response["fields"].items():
+            field = datastore.DataStoreKeyValue()
+            field.key = key
+            field.value = value
+            res.form.append(field)
 
         self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": False, "update_size": param.size}})
 
@@ -226,9 +166,15 @@ class CommonDataStoreServer(datastore.DataStoreServer):
             datastore_object = self.datastore_db.find_one({"id": param.data_id})
             if datastore_object and (client.pid() == datastore_object["owner"]):
                 persistence_id = datastore_object["persistence_id"]
-                success, _, _ = self.head_object_by_key(self.calculate_s3_object_key(self.datastore_db, client, persistence_id, param.data_id))
-                if success:
-                    self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": True, "size": datastore_object["update_size"]}})
+                key = self.calculate_s3_object_key(self.datastore_db, client, persistence_id, param.data_id)
+                try:
+                    response = self.s3_client.stat_object(self.s3_bucket, key)
+                    if response.size != 0:
+                        self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": True, "size": datastore_object["update_size"]}})
+                except:
+                    raise common.RMCError("DataStore::NotFound")
+            else:
+                raise common.RMCError("DataStore::PermissionDenied")
 
     async def prepare_get_object(self, client, param: datastore.DataStorePrepareGetParam) -> datastore.DataStoreReqGetInfo:
         query = {}
@@ -245,18 +191,17 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         if not obj:
             raise common.RMCError("DataStore::NotFound")
 
-        success, size, url = self.head_object_by_key(self.calculate_s3_object_key_ex(
+        key = self.calculate_s3_object_key_ex(
             self.datastore_db,
             param.persistence_target.owner_id,
             param.persistence_target.persistence_id,
-            obj["id"]))
+            obj["id"])
 
-        if not success:
-            raise common.RMCError("DataStore::NotFound")
+        url = self.s3_client.presigned_get_object(self.s3_bucket, key, datetime.timedelta(minutes=15))
 
         res = datastore.DataStoreReqGetInfo()
         res.url = url
-        res.size = size
+        res.size = obj["size"]
         res.data_id = obj["id"]
         res.headers = []
         res.root_ca_cert = b""
@@ -476,17 +421,11 @@ class CommonDataStoreServer(datastore.DataStoreServer):
                 res.results.append(common.Result.error("DataStore::NotFound"))
                 continue
 
-            success, size, url = self.head_object_by_key(self.calculate_s3_object_key_ex(
-                self.datastore_db, obj["owner"], obj["persistence_id"], obj["id"]))
-
-            if not success:
-                res.infos.append(info)
-                res.results.append(common.Result.error("DataStore::NotFound"))
-                continue
+            key = self.calculate_s3_object_key_ex(self.datastore_db, obj["owner"], obj["persistence_id"], obj["id"])
+            url = self.s3_client.presigned_get_object(self.s3_bucket, key, datetime.timedelta(minutes=15))
 
             info.url = url
-            info.size = size
-
+            info.size = obj["size"]
             res.infos.append(info)
             res.results.append(common.Result.success("DataStore::Unknown"))
 
