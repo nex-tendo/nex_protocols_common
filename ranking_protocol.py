@@ -342,6 +342,7 @@ class CommonRankingServer(ranking.RankingServer):
         res.total = 1337
         res.since_time = common.DateTime.make(year=2011)
 
+        lookup_pid = pid if pid != 0 else client.pid()
         if mode == ranking.RankingMode.GLOBAL:
             if order.order_calc == 0:
                 scores = self.ranking_mgr.get_scores_by_range_standard(category, order.offset, order.count, desc, query)
@@ -349,14 +350,14 @@ class CommonRankingServer(ranking.RankingServer):
                 scores = self.ranking_mgr.get_scores_by_range_ordinal(category, order.offset, order.count, desc, query)
         elif mode == ranking.RankingMode.SELF:
             if order.order_calc == 0:
-                scores = self.ranking_mgr.get_top_score_for_pid_standard(client.pid(), category, desc)
+                scores = self.ranking_mgr.get_top_score_for_pid_standard(lookup_pid, category, desc)
             else:
-                scores = self.ranking_mgr.get_top_score_for_pid_ordinal(client.pid(), category, desc)
+                scores = self.ranking_mgr.get_top_score_for_pid_ordinal(lookup_pid, category, desc)
         elif mode == ranking.RankingMode.GLOBAL_AROUND_SELF:
             if order.order_calc == 0:
-                scores = self.ranking_mgr.get_scores_around_user_standard(client.pid(), category, order.count, desc)
+                scores = self.ranking_mgr.get_scores_around_user_standard(lookup_pid, category, order.count, desc)
             else:
-                scores = self.ranking_mgr.get_scores_around_user_ordinal(client.pid(), category, order.count, desc)
+                scores = self.ranking_mgr.get_scores_around_user_ordinal(lookup_pid, category, order.count, desc)
         else:
             raise common.RMCError("Core::NotImplemented")
 
