@@ -66,7 +66,7 @@ class CommonDataStoreServer(datastore.DataStoreServer):
                 "permission": param.permission.permission,
                 "recipients": param.permission.recipients,
             },
-            "persistence_id": param.persistence_init_param.persistence_id,
+            "tmp_persistence_id": param.persistence_init_param.persistence_id,
             "is_validated": False,
             "create_time": datetime.datetime.utcnow(),
             "update_time": datetime.datetime.utcnow(),
@@ -123,7 +123,15 @@ class CommonDataStoreServer(datastore.DataStoreServer):
                 try:
                     response = self.s3_client.stat_object(self.s3_bucket, key)
                     if response.size != 0:
-                        self.datastore_db.update_one({"id": param.data_id}, {"$set": {"is_validated": True}})
+                        self.datastore_db.delete_many({"owner": client.pid(), "persistence_id": persistence_id, "data_id": {"$ne": param.data_id}})
+                        self.datastore_db.update_one(
+                            {"id": param.data_id},
+                            {
+                                "$set": {
+                                    "is_validated": True,
+                                    "persistence_id": persistence_id
+                                }
+                            })
                 except:
                     raise common.RMCError("DataStore::NotFound")
             else:
@@ -187,7 +195,8 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         if param.persistence_target.persistence_id:
             query.update({"persistence_id": param.persistence_target.persistence_id})
 
-        obj = self.datastore_db.find_one(query)
+        # Fix for the old bad implementation that didn't enforce a single object per owner/persistence_id
+        obj = self.datastore_db.find_one(query, sort=[('create_time', -1)])
         if not obj:
             raise common.RMCError("DataStore::NotFound")
 
