@@ -70,11 +70,23 @@ class RankingManager:
             replace_all (bool, optional): Delete all previous scores. Defaults to True.
         """
 
+        self.set_score_for_pid(client.pid(), score_data, unique_id, replace_all)
+
+    def set_score_for_pid(self, pid: int, score_data: ranking.RankingScoreData, unique_id: int, replace_all: bool = True):
+        """Insert a user score in the database based on PID (MongoDB and Redis)
+
+        Args:
+            pid (int): The score owner
+            score_data (ranking.RankingScoreData): The score data
+            unique_id (int): Unique ID (unused.)
+            replace_all (bool, optional): Delete all previous scores. Defaults to True.
+        """
+
         if replace_all:
-            self.delete_scores(client, score_data.category)
+            self.delete_scores(pid, score_data.category)
 
         insert_result = self.rankings_db.insert_one({
-            "pid": client.pid(),
+            "pid": pid,
             "category": score_data.category,
             "score": score_data.score,
             "groups": score_data.groups,
@@ -87,9 +99,9 @@ class RankingManager:
 
         pipeline.execute()
 
-    def delete_scores(self, client: rmc.RMCClient, category: int):
-        registered_scores = list(self.rankings_db.find({"pid": client.pid(), "category": category}))
-        self.rankings_db.delete_many({"pid": client.pid(), "category": category})
+    def delete_scores(self, pid: int, category: int):
+        registered_scores = list(self.rankings_db.find({"pid": pid, "category": category}))
+        self.rankings_db.delete_many({"pid": pid, "category": category})
 
         pipeline = self.redis_db.pipeline()
         id_list = list(map(lambda x: str(x["_id"]), registered_scores))
@@ -100,6 +112,13 @@ class RankingManager:
             pipeline.zadd(self.get_redis_member_name(category, True), {str(score["score"]): -1}, incr=True)
 
         pipeline.execute()
+
+    def delete_all_scores(self, pid: int):
+        registered_scores = list(self.rankings_db.find({"pid": pid}))
+        categories = list(map(lambda x: x["category"], registered_scores))
+
+        for category in categories:
+            self.delete_scores(pid, category)
 
     def get_scores_document_by_query(self, query: dict, desc: bool = False, limit: int = 200) -> list:
         return list(self.rankings_db.aggregate([
