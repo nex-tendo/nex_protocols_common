@@ -118,7 +118,7 @@ class CommonDataStoreServer(datastore.DataStoreServer):
         if param.success:
             datastore_object = self.datastore_db.find_one({"id": param.data_id})
             if datastore_object and (client.pid() == datastore_object["owner"]):
-                persistence_id = datastore_object["persistence_id"]
+                persistence_id = datastore_object["tmp_persistence_id"]
                 key = self.calculate_s3_object_key(self.datastore_db, client, persistence_id, param.data_id)
                 try:
                     response = self.s3_client.stat_object(self.s3_bucket, key)
