@@ -1,6 +1,6 @@
-# NEX common protocols in Python
+# nex_protocols_common
 
-- These are designed to work on the WiiU and 3DS, switch specific features were discarded
+- These are designed to work on the Wii U and 3DS, switch specific features were discarded
 
 # Usage
 
