@@ -73,7 +73,7 @@ AuthenticationServer = CommonAuthenticationServer(
 )
 ```
 
-## Secure Connecition Protocol (secure server)
+## Secure Connection Protocol (secure server)
 
 - Basic secure connection protocol, doesn't decrypt and decompress secure reports.
 
